@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Database
+finance.db
+
+# Keys & Certificates
+certificate.pem
+private_key.pem
+
+# Frontend
+node_modules/
+dist/
+
+# OS
+.DS_Store
