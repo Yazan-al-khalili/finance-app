@@ -1,6 +1,16 @@
 <template>
   <div>
-    <h1 class="text-3xl font-bold mb-6 text-gray-800">Dashboard</h1>
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
+      <div class="space-x-4">
+        <button @click="linkBank" class="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-md hover:bg-indigo-200 transition-colors font-medium">
+          Link Nordea Card
+        </button>
+        <button @click="syncTransactions" :disabled="syncing" class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors font-medium disabled:opacity-50">
+          {{ syncing ? 'Syncing...' : 'Sync Transactions' }}
+        </button>
+      </div>
+    </div>
     
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
       <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-indigo-500">
@@ -50,6 +60,7 @@ export default {
   data() {
     return {
       transactions: [],
+      syncing: false,
       chartOptions: {
         responsive: true,
         maintainAspectRatio: false
@@ -95,10 +106,9 @@ export default {
       }
     },
     barChartData() {
-      // Group by month
       const months = {}
       this.transactions.forEach(t => {
-        const month = t.date.substring(0, 7) // YYYY-MM
+        const month = t.date.substring(0, 7)
         if (!months[month]) months[month] = { income: 0, expense: 0 }
         months[month][t.type] += t.amount
       })
@@ -124,6 +134,10 @@ export default {
   },
   mounted() {
     this.fetchTransactions()
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('sync') === 'success') {
+      alert('Bank linked successfully! You can now sync your transactions.')
+    }
   },
   methods: {
     async fetchTransactions() {
@@ -132,6 +146,28 @@ export default {
         this.transactions = response.data
       } catch (error) {
         console.error('Error fetching transactions:', error)
+      }
+    },
+    async linkBank() {
+      try {
+        const response = await axios.get('http://localhost:8000/auth/link?bank_name=Nordea')
+        window.location.href = response.data.url
+      } catch (error) {
+        console.error('Error linking bank:', error)
+        alert('Could not start bank link process.')
+      }
+    },
+    async syncTransactions() {
+      this.syncing = true
+      try {
+        const response = await axios.post('http://localhost:8000/transactions/sync')
+        alert(`Sync complete! Added ${response.data.new_transactions} new transactions.`)
+        this.fetchTransactions()
+      } catch (error) {
+        console.error('Error syncing:', error)
+        alert('Sync failed. Make sure you have linked your bank first.')
+      } finally {
+        this.syncing = false
       }
     }
   }
