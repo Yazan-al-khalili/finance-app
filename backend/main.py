@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
-from . import models, database
+import models
+import database
 from pydantic import BaseModel
 from datetime import date as date_type
 
@@ -9,6 +11,15 @@ from datetime import date as date_type
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI()
+
+# Enable CORS for frontend connection
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Dependency to get the database session
 def get_db():
@@ -20,7 +31,7 @@ def get_db():
 
 # Pydantic schema for transaction data
 class TransactionBase(BaseModel):
-    type: str
+    type: str  # income or expense
     category: str
     amount: float
     date: date_type
@@ -37,7 +48,7 @@ class Transaction(TransactionBase):
 
 @app.get("/transactions", response_model=List[Transaction])
 def get_transactions(db: Session = Depends(get_db)):
-    transactions = db.query(models.Transaction).all()
+    transactions = db.query(models.Transaction).order_by(models.Transaction.date.desc()).all()
     return transactions
 
 @app.post("/transactions", response_model=Transaction)
@@ -56,3 +67,7 @@ def delete_transaction(id: int, db: Session = Depends(get_db)):
     db.delete(db_transaction)
     db.commit()
     return {"message": "Transaction deleted"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
