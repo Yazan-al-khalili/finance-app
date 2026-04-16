@@ -2,5 +2,7 @@ fastapi
 uvicorn
 sqlalchemy
 pydantic
-enablebanking-sdk
 python-dotenv
+PyJWT
+requests
+cryptography

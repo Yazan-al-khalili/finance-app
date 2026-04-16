@@ -1,38 +1,160 @@
 <template>
   <div>
-    <h1 class="text-3xl font-bold mb-6 text-gray-800">Transactions</h1>
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-3xl font-bold text-gray-800">Transactions</h1>
+      <div class="flex items-center gap-3">
+        <button
+          @click="connectBank"
+          :disabled="connecting"
+          class="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+          </svg>
+          {{ connecting ? 'Connecting…' : 'Connect SEB' }}
+        </button>
+
+        <button
+          @click="syncBank"
+          :disabled="syncing"
+          class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
+        >
+          <svg class="w-4 h-4" :class="{ 'animate-spin': syncing }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {{ syncing ? 'Syncing…' : 'Sync from SEB' }}
+        </button>
+
+        <button
+          v-if="transactions.length > 0"
+          @click="clearAll"
+          class="text-xs text-gray-400 hover:text-red-500 transition-colors px-2 py-1"
+          title="Clear all transactions"
+        >
+          Clear data
+        </button>
+      </div>
+    </div>
+
+    <!-- Feedback banner -->
+    <transition name="fade">
+      <div
+        v-if="message"
+        :class="messageType === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'"
+        class="mb-5 px-4 py-3 rounded-lg border text-sm font-medium flex justify-between items-center"
+      >
+        <span>{{ message }}</span>
+        <button @click="message = ''" class="ml-4 opacity-60 hover:opacity-100 text-lg leading-none">&times;</button>
+      </div>
+    </transition>
+
+    <!-- Add transaction form -->
     <TransactionForm @transaction-added="fetchTransactions" />
-    <div class="bg-white rounded-lg shadow-md overflow-hidden">
-      <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
-          <tr>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Note</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-          </tr>
-        </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
-          <tr v-for="t in transactions" :key="t.id">
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ t.date }}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm capitalize">
-              <span :class="t.type === 'income' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'">
-                {{ t.type }}
+
+    <!-- Empty state -->
+    <div v-if="transactions.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-100 py-16 text-center">
+      <p class="text-gray-400 text-sm">No transactions yet.</p>
+      <p class="text-gray-400 text-sm mt-1">Connect your SEB account and click <strong>Sync from SEB</strong>.</p>
+    </div>
+
+    <!-- Month sections -->
+    <div v-for="month in grouped" :key="month.key" class="mb-8">
+
+      <!-- Month header -->
+      <div class="flex items-center justify-between mb-3 px-1">
+        <h2 class="text-lg font-bold text-gray-800">{{ month.label }}</h2>
+        <div class="flex items-center gap-5 text-sm">
+          <span class="text-green-600 font-medium">
+            +{{ formatSEK(month.totalIncome) }}
+          </span>
+          <span class="text-red-500 font-medium">
+            −{{ formatSEK(month.totalExpenses) }}
+          </span>
+          <span class="font-bold" :class="month.net >= 0 ? 'text-indigo-600' : 'text-red-600'">
+            {{ month.net >= 0 ? '+' : '−' }}{{ formatSEK(month.net) }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Category cards -->
+      <div class="space-y-2">
+        <div
+          v-for="cat in month.categories"
+          :key="cat.name"
+          class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+        >
+          <!-- Category row (click to expand/collapse) -->
+          <button
+            @click="toggleCategory(month.key, cat.name)"
+            class="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors text-left"
+          >
+            <div class="flex items-center gap-3">
+              <!-- Chevron -->
+              <svg
+                class="w-4 h-4 text-gray-400 transition-transform"
+                :class="{ 'rotate-90': isOpen(month.key, cat.name) }"
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+
+              <!-- Category name -->
+              <span class="text-sm font-semibold text-gray-800">{{ cat.name }}</span>
+
+              <!-- Transaction count badge -->
+              <span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                {{ cat.transactions.length }} {{ cat.transactions.length === 1 ? 'transaction' : 'transactions' }}
               </span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ t.category }}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium" :class="t.type === 'income' ? 'text-green-600' : 'text-red-600'">
-              {{ t.type === 'income' ? '+' : '-' }}${{ t.amount.toFixed(2) }}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ t.note }}</td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-              <button @click="deleteTransaction(t.id)" class="text-red-600 hover:text-red-900 transition-colors">Delete</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            </div>
+
+            <!-- Category total -->
+            <span
+              class="text-sm font-bold"
+              :class="cat.total >= 0 ? 'text-green-600' : 'text-red-500'"
+            >
+              {{ cat.total >= 0 ? '+' : '−' }}{{ formatSEK(cat.total) }}
+            </span>
+          </button>
+
+          <!-- Expanded transaction rows -->
+          <div v-if="isOpen(month.key, cat.name)" class="border-t border-gray-50">
+            <div
+              v-for="t in cat.transactions"
+              :key="t.id"
+              class="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0"
+            >
+              <!-- Date + note -->
+              <div class="flex items-center gap-4 min-w-0">
+                <span class="text-xs text-gray-400 w-14 shrink-0">{{ formatDate(t.date) }}</span>
+                <span class="text-sm text-gray-500 truncate">{{ t.note || t.category }}</span>
+              </div>
+
+              <!-- Amount + delete -->
+              <div class="flex items-center gap-4 shrink-0">
+                <span
+                  class="text-sm font-medium"
+                  :class="t.type === 'income' ? 'text-green-600' : 'text-red-500'"
+                >
+                  {{ t.type === 'income' ? '+' : '−' }}{{ formatSEK(t.amount) }}
+                </span>
+                <button
+                  @click.stop="deleteTransaction(t.id)"
+                  class="text-gray-200 hover:text-red-400 transition-colors"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -43,32 +165,158 @@ import TransactionForm from '../components/TransactionForm.vue'
 
 export default {
   components: { TransactionForm },
+
   data() {
     return {
-      transactions: []
+      transactions: [],
+      syncing: false,
+      connecting: false,
+      message: '',
+      messageType: 'success',
+      // Tracks which category rows are expanded: Set of "monthKey|categoryName"
+      expanded: new Set(),
     }
   },
+
+  computed: {
+    grouped() {
+      // ── 1. Bucket by month ────────────────────────────────────────────────
+      const monthMap = {}
+      for (const t of this.transactions) {
+        const key = t.date.substring(0, 7)   // "2024-03"
+        if (!monthMap[key]) monthMap[key] = []
+        monthMap[key].push(t)
+      }
+
+      return Object.keys(monthMap)
+        .sort((a, b) => b.localeCompare(a))  // newest month first
+        .map(key => {
+          const txs = monthMap[key]
+          const [year, mon] = key.split('-')
+          const label = new Date(year, mon - 1).toLocaleString('en-US', {
+            month: 'long', year: 'numeric',
+          })
+
+          // ── 2. Bucket by category within this month ─────────────────────
+          const catMap = {}
+          for (const t of txs) {
+            const name = t.category || 'Other'
+            if (!catMap[name]) catMap[name] = []
+            catMap[name].push(t)
+          }
+
+          const categories = Object.keys(catMap)
+            .map(name => {
+              const catTxs = [...catMap[name]].sort((a, b) => b.date.localeCompare(a.date))
+              const total = catTxs.reduce(
+                (s, t) => t.type === 'income' ? s + t.amount : s - t.amount, 0
+              )
+              return { name, transactions: catTxs, total }
+            })
+            // Sort: biggest expense categories first, income at the bottom
+            .sort((a, b) => a.total - b.total)
+
+          const totalIncome   = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
+          const totalExpenses = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
+          const net = totalIncome - totalExpenses
+
+          return { key, label, categories, totalIncome, totalExpenses, net }
+        })
+    },
+  },
+
   mounted() {
     this.fetchTransactions()
   },
+
   methods: {
     async fetchTransactions() {
+      const res = await axios.get('http://localhost:8000/transactions')
+      this.transactions = res.data
+    },
+
+    // ── Category expand / collapse ──────────────────────────────────────────
+    toggleCategory(monthKey, catName) {
+      const id = `${monthKey}|${catName}`
+      const next = new Set(this.expanded)
+      next.has(id) ? next.delete(id) : next.add(id)
+      this.expanded = next
+    },
+    isOpen(monthKey, catName) {
+      return this.expanded.has(`${monthKey}|${catName}`)
+    },
+
+    // ── Bank actions ────────────────────────────────────────────────────────
+    async connectBank() {
+      this.connecting = true
       try {
-        const response = await axios.get('http://localhost:8000/transactions')
-        this.transactions = response.data
-      } catch (error) {
-        console.error('Error fetching transactions:', error)
+        const res = await axios.get('http://localhost:8000/auth/link', {
+          params: { country: 'SE', bank_name: 'SEB' },
+        })
+        window.location.href = res.data.url
+      } catch (err) {
+        this.showMessage('Could not start bank connection: ' + (err.response?.data?.detail || err.message), 'error')
+        this.connecting = false
       }
     },
-    async deleteTransaction(id) {
-      if (!confirm('Are you sure?')) return
+
+    async syncBank() {
+      this.syncing = true
+      this.message = ''
       try {
-        await axios.delete(`http://localhost:8000/transactions/${id}`)
-        this.fetchTransactions()
-      } catch (error) {
-        console.error('Error deleting transaction:', error)
+        const res = await axios.post('http://localhost:8000/transactions/sync')
+        const n = res.data.new_transactions
+        this.showMessage(
+          n > 0
+            ? `Synced ${n} new transaction${n === 1 ? '' : 's'} from SEB.`
+            : 'Already up to date — no new transactions found.'
+        )
+        await this.fetchTransactions()
+      } catch (err) {
+        this.showMessage('Sync failed: ' + (err.response?.data?.detail || err.message), 'error')
+      } finally {
+        this.syncing = false
       }
-    }
-  }
+    },
+
+    async clearAll() {
+      const n = this.transactions.length
+      if (!confirm(`Delete all ${n} transactions? This cannot be undone.`)) return
+      await axios.delete('http://localhost:8000/transactions/all')
+      this.transactions = []
+      this.expanded = new Set()
+      this.showMessage(`Cleared ${n} transactions.`)
+    },
+
+    async deleteTransaction(id) {
+      if (!confirm('Delete this transaction?')) return
+      await axios.delete(`http://localhost:8000/transactions/${id}`)
+      await this.fetchTransactions()
+    },
+
+    // ── Formatting ──────────────────────────────────────────────────────────
+    showMessage(text, type = 'success') {
+      this.message = text
+      this.messageType = type
+      if (type === 'success') setTimeout(() => { this.message = '' }, 6000)
+    },
+
+    formatSEK(n) {
+      return new Intl.NumberFormat('sv-SE', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2,
+      }).format(Math.abs(n)) + ' kr'
+    },
+
+    formatDate(d) {
+      return new Date(d + 'T12:00:00').toLocaleDateString('sv-SE', {
+        day: 'numeric', month: 'short',
+      })
+    },
+  },
 }
 </script>
+
+<style scoped>
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+</style>

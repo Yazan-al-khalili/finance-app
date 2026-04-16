@@ -6,7 +6,8 @@ __pycache__/
 # Database
 finance.db
 
-# Keys & Certificates
+# Keys & Certificates — NEVER commit these
+*.pem
 certificate.pem
 private_key.pem
 

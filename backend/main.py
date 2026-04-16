@@ -7,25 +7,16 @@ import models
 import database
 from pydantic import BaseModel
 from datetime import date as date_type, datetime
-import os
-from dotenv import load_dotenv
-from enablebanking_sdk.service import EnableBankingIntegration, EnableBankingService
-from enablebanking_sdk.constants import PSUType
 import uuid
 
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+import enablebanking  # our module in backend/enablebanking.py
 
-# Configuration for Enable Banking
-APP_ID = os.getenv("ENABLEBANKING_APP_ID")
-CERT_PATH = os.path.join(os.path.dirname(__file__), "certificate.pem")
-REDIRECT_URL = "http://localhost:8000/auth/callback"
-
-# Create the database tables
+# Create database tables on startup (safe to call repeatedly)
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI()
 
-# Enable CORS
+# Allow the Vite dev server (port 5173) to call this backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,7 +25,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Dependency
+REDIRECT_URL = "https://thick-insects-rule.loca.lt/auth/callback"
+
+
+# ── Database session dependency ────────────────────────────────────────────────
 def get_db():
     db = database.SessionLocal()
     try:
@@ -42,7 +36,8 @@ def get_db():
     finally:
         db.close()
 
-# Pydantic models
+
+# ── Pydantic schemas ───────────────────────────────────────────────────────────
 class TransactionBase(BaseModel):
     type: str
     category: str
@@ -60,32 +55,8 @@ class Transaction(TransactionBase):
     class Config:
         orm_mode = True
 
-# Helper to get Enable Banking Service
-def get_eb_service():
-    if not APP_ID:
-        # Check if .env actually exists
-        env_path = os.path.join(os.path.dirname(__file__), ".env")
-        print(f"DEBUG: Checking for .env at {env_path}")
-        if not os.path.exists(env_path):
-            print("DEBUG: .env NOT FOUND")
-        else:
-            print("DEBUG: .env FOUND")
-        raise HTTPException(status_code=500, detail="ENABLEBANKING_APP_ID not set in .env")
-    
-    try:
-        with open(CERT_PATH, "r") as f:
-            certificate = f.read()
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail=f"Certificate not found at {CERT_PATH}")
-    
-    integration = EnableBankingIntegration(
-        base_url="https://api.enablebanking.com",
-        app_id=APP_ID,
-        certificate=certificate
-    )
-    return EnableBankingService(integration)
 
-# --- CORE ENDPOINTS ---
+# ── Manual transaction CRUD ────────────────────────────────────────────────────
 
 @app.get("/transactions", response_model=List[Transaction])
 def get_transactions(db: Session = Depends(get_db)):
@@ -93,7 +64,6 @@ def get_transactions(db: Session = Depends(get_db)):
         return db.query(models.Transaction).order_by(models.Transaction.date.desc()).all()
     except Exception as e:
         print(f"Error fetching transactions: {e}")
-        # If DB is corrupted or missing column, recreate
         models.Base.metadata.create_all(bind=database.engine)
         return []
 
@@ -105,6 +75,13 @@ def create_transaction(transaction: TransactionCreate, db: Session = Depends(get
     db.refresh(db_transaction)
     return db_transaction
 
+@app.delete("/transactions/all")
+def clear_all_transactions(db: Session = Depends(get_db)):
+    count = db.query(models.Transaction).count()
+    db.query(models.Transaction).delete()
+    db.commit()
+    return {"deleted": count}
+
 @app.delete("/transactions/{id}")
 def delete_transaction(id: int, db: Session = Depends(get_db)):
     db_transaction = db.query(models.Transaction).filter(models.Transaction.id == id).first()
@@ -114,138 +91,220 @@ def delete_transaction(id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Deleted"}
 
-# --- ENABLE BANKING FLOW ---
+
+# ── Enable Banking: authorization flow ────────────────────────────────────────
 
 @app.get("/auth/link")
-def link_bank(country: str = "SE", bank_name: str = "Nordea"):
-    service = get_eb_service()
-    
-    try:
-        # 1. Search in both Personal and Business lists
-        all_aspsps = []
-        for p_type in [PSUType.PERSONAL, PSUType.BUSINESS]:
-            try:
-                all_aspsps.extend(service.get_aspsps(country=country, psu_type=p_type))
-            except Exception as e:
-                print(f"DEBUG: Error fetching {p_type} banks: {e}")
-                continue
-        
-        # 2. Try to find the requested bank (e.g. Nordea)
-        target_bank = next((a for a in all_aspsps if bank_name.upper() in a.name.upper()), None)
-        
-        # 3. If not found, look for "MOCK"
-        if not target_bank:
-            print(f"DEBUG: {bank_name} not found in {country}. Falling back to Mock ASPSP.")
-            target_bank = next((a for a in all_aspsps if "MOCK" in a.name.upper()), None)
-        
-        if not target_bank:
-            available = [a.name for a in all_aspsps]
-            print(f"DEBUG: Available banks in {country}: {available}")
-            raise HTTPException(status_code=404, detail=f"No suitable bank found. Available: {available[:5]}...")
-        
-        print(f"DEBUG: Starting session for {target_bank.name} in {target_bank.country}")
+def link_bank(country: str = "SE", bank_name: str = "SEB"):
+    """
+    Step 1 of the bank connection flow.
 
-        # 4. Start user session
-        state = str(uuid.uuid4())
-        try:
-            session_response = service.start_user_session(
-                aspsp=target_bank,
-                state=state,
-                redirect_url=REDIRECT_URL,
-                language="en",
-                psu_type=PSUType.PERSONAL
+    Returns {"url": "<bank login URL>"}.
+    The frontend should redirect the user to that URL (or open it in a new tab).
+    After the user authenticates, the bank calls /auth/callback automatically.
+    """
+    try:
+        # Fetch all banks available in `country`
+        banks = enablebanking.list_banks(country=country)
+
+        # Find the requested bank by name (case-insensitive substring match)
+        target = next(
+            (b for b in banks if bank_name.upper() in b["name"].upper()), None
+        )
+
+        # Fallback: use the Mock ASPSP for sandbox testing
+        if not target:
+            print(f"DEBUG: '{bank_name}' not found. Falling back to Mock ASPSP.")
+            target = next(
+                (b for b in banks if "MOCK" in b["name"].upper()), None
             )
-            return {"url": session_response.url}
-        except Exception as api_error:
-            # Try to extract the detailed error message from the response
-            if hasattr(api_error, 'response') and api_error.response is not None:
-                print(f"DEBUG: Enable Banking API Error Detail: {api_error.response.text}")
-            
-            print(f"DEBUG: Enable Banking API Error: {api_error}")
-            raise HTTPException(status_code=400, detail=f"Bank API Error: {str(api_error)}")
-            
+
+        if not target:
+            available = [b["name"] for b in banks[:10]]
+            raise HTTPException(
+                status_code=404,
+                detail=f"Bank '{bank_name}' not found in {country}. Available: {available}",
+            )
+
+        print(f"DEBUG: Starting auth for {target['name']} ({target['country']})")
+
+        # state is a random UUID — the bank echoes it back in the callback URL
+        # so you can verify the response hasn't been tampered with (CSRF protection)
+        state = str(uuid.uuid4())
+
+        auth_url = enablebanking.start_auth(
+            bank_name=target["name"],
+            country=target["country"],
+            redirect_url=REDIRECT_URL,
+            state=state,
+        )
+        return {"url": auth_url}
+
+    except HTTPException:
+        raise
     except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
         print(f"Error in link_bank: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/auth/callback")
-def auth_callback(code: str, state: str, db: Session = Depends(get_db)):
-    service = get_eb_service()
-    
-    # 1. Authorize session and get accounts
-    response = service.authorize_user_session(code)
-    
-    # 2. Store account UIDs to fetch transactions later
-    # We store them in our BankSession table (token field for simplicity)
-    account_uids = ",".join([acc.uid for acc in response.accounts])
-    
+def auth_callback(
+    state: str,
+    code: str = None,
+    error: str = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Step 2: Enable Banking redirects here after the user authenticates.
+
+    Enable Banking may call this with either:
+      ?code=<token>          — success, exchange for a session
+      ?error=<reason>        — user cancelled or something went wrong
+    Both cases must be handled; FastAPI returns 422 if a required param is missing.
+    """
+    if error:
+        print(f"Auth error from Enable Banking: {error}")
+        return RedirectResponse(url=f"http://localhost:5173/?auth_error={error}")
+
+    if not code:
+        return RedirectResponse(url="http://localhost:5173/?auth_error=no_code")
+
+    # Exchange the one-time code for a session with account access
+    session = enablebanking.exchange_code_for_session(code)
+    print(f"DEBUG session response: {session}")  # temporary — remove once confirmed working
+
+    # Filter out any accounts where uid is None before joining
+    account_uids = ",".join([
+        acc["uid"] for acc in session.get("accounts", [])
+        if acc.get("uid") is not None
+    ])
+
     bank_session = models.BankSession(
-        aspsp_id=response.aspsp.name,
-        session_id=response.session_id,
-        token=account_uids # Storing UIDs here
+        aspsp_id=session.get("aspsp", {}).get("name", "unknown"),
+        session_id=session["session_id"],
+        token=account_uids,  # Reusing `token` column to store UIDs (comma-separated)
     )
     db.add(bank_session)
     db.commit()
-    
+
+    # Redirect back to the frontend; the ?sync=success tells it to show a success message
     return RedirectResponse(url="http://localhost:5173/?sync=success")
+
+
+# ── Enable Banking: data fetching ─────────────────────────────────────────────
+
+@app.get("/balances")
+def get_balances(db: Session = Depends(get_db)):
+    """
+    Return current balances for all linked accounts.
+
+    Calls Enable Banking's /accounts/{uid}/balances for each stored account.
+    """
+    bank_session = (
+        db.query(models.BankSession)
+        .order_by(models.BankSession.created_at.desc())
+        .first()
+    )
+    if not bank_session or not bank_session.token:
+        raise HTTPException(status_code=400, detail="No bank account linked. Visit /auth/link first.")
+
+    result = []
+    for uid in bank_session.token.split(","):
+        try:
+            balances = enablebanking.get_balances(uid)
+            result.append({"account_uid": uid, "balances": balances})
+        except Exception as e:
+            print(f"Error fetching balances for {uid}: {e}")
+    return result
+
 
 @app.post("/transactions/sync")
 def sync_transactions(db: Session = Depends(get_db)):
-    bank_session = db.query(models.BankSession).order_by(models.BankSession.created_at.desc()).first()
+    """
+    Pull the latest transactions from all linked bank accounts and store
+    any new ones in the local database.
+
+    Uses `external_id` to skip duplicates — safe to call multiple times.
+    """
+    bank_session = (
+        db.query(models.BankSession)
+        .order_by(models.BankSession.created_at.desc())
+        .first()
+    )
     if not bank_session or not bank_session.token:
-        raise HTTPException(status_code=400, detail="No bank account linked")
-    
-    service = get_eb_service()
+        raise HTTPException(status_code=400, detail="No bank account linked. Visit /auth/link first.")
+
     account_uids = bank_session.token.split(",")
     new_count = 0
-    
+
     try:
         for uid in account_uids:
-            txs = service.get_account_transactions(uid)
-            for t in txs:
-                # 1. Generate a robust external_id
-                ext_id = t.entry_reference or t.reference_number or str(hash(f"{t.booking_date}{t.transaction_amount.amount}{t.note}"))
-                
-                existing = db.query(models.Transaction).filter(models.Transaction.external_id == ext_id).first()
-                if not existing:
-                    amount = t.transaction_amount.amount
-                    indicator = t.credit_debit_indicator # DBIT or CRDT
-                    
-                    # 2. Logic: If indicator is DBIT OR amount is negative, it's an expense
-                    is_expense = (indicator == "DBIT") or (amount < 0)
-                    tx_type = "expense" if is_expense else "income"
-                    
-                    # 3. Smarter Category/Name extraction
-                    # Try Creditor Name (Merchant), then Note, then fallback
-                    category = "Other"
-                    if t.creditor and t.creditor.name:
-                        category = t.creditor.name
-                    elif t.remittance_information and len(t.remittance_information) > 0:
-                        category = t.remittance_information[0]
-                    elif t.note:
-                        category = t.note
-                    
-                    print(f"DEBUG SYNC: {tx_type.upper()} | {category} | {abs(amount)}")
+            txs = enablebanking.get_transactions(uid)
 
-                    new_tx = models.Transaction(
-                        type=tx_type,
-                        category=category[:50], # Limit length
-                        amount=abs(amount),
-                        date=datetime.strptime(t.booking_date, "%Y-%m-%d").date() if t.booking_date else datetime.now().date(),
-                        note=t.note or (t.remittance_information[0] if t.remittance_information else ""),
-                        external_id=ext_id
-                    )
-                    db.add(new_tx)
-                    new_count += 1
-        
+            for t in txs:
+                # ── Parse amount ──────────────────────────────────────────────
+                amount_info = t.get("transaction_amount") or {}
+                amount      = float(amount_info.get("amount", 0))
+                indicator   = t.get("credit_debit_indicator", "")  # "DBIT" or "CRDT"
+
+                # Only treat as income if the bank explicitly marks it as a credit (CRDT).
+                # SEB sometimes omits the indicator entirely for card purchases and
+                # foreign transactions — those must default to expense, not income.
+                is_income = (indicator == "CRDT") and (amount > 0)
+                tx_type   = "income" if is_income else "expense"
+
+                # ── Derive a human-readable label for `category` ──────────────
+                # Priority: creditor name (merchant) → remittance info → note
+                creditor   = t.get("creditor") or {}
+                remittance = t.get("remittance_information") or []
+                category = (
+                    creditor.get("name")
+                    or (remittance[0] if remittance else None)
+                    or t.get("note")
+                    or "Other"
+                )
+
+                # ── Deduplication key ─────────────────────────────────────────
+                # Use the bank's own reference if available, otherwise hash a
+                # combination of fields that should uniquely identify the transaction.
+                ext_id = (
+                    t.get("entry_reference")
+                    or t.get("reference_number")
+                    or str(hash(f"{t.get('booking_date')}{amount}{t.get('note')}"))
+                )
+
+                if db.query(models.Transaction).filter(
+                    models.Transaction.external_id == ext_id
+                ).first():
+                    continue  # already imported — skip
+
+                # ── Parse date ────────────────────────────────────────────────
+                booking_date_str = t.get("booking_date")
+                booking_date = (
+                    datetime.strptime(booking_date_str, "%Y-%m-%d").date()
+                    if booking_date_str
+                    else datetime.now().date()
+                )
+
+                print(f"SYNC: {tx_type.upper()} | {category} | {abs(amount)}")
+
+                db.add(models.Transaction(
+                    type=tx_type,
+                    category=category[:50],       # column has no length limit but let's be tidy
+                    amount=abs(amount),
+                    date=booking_date,
+                    note=t.get("note") or (remittance[0] if remittance else ""),
+                    external_id=ext_id,
+                ))
+                new_count += 1
+
         db.commit()
         return {"status": "success", "new_transactions": new_count}
-        
+
     except Exception as e:
         print(f"Sync error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn
