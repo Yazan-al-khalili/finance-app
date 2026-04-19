@@ -32,9 +32,23 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-APP_ID    = os.getenv("ENABLEBANKING_APP_ID")   # Your Application ID from Enable Banking Control Panel
-CERT_PATH = os.path.join(os.path.dirname(__file__), "certificate.pem")  # Your private key file
-API_BASE  = "https://api.enablebanking.com"     # Enable Banking REST API base URL
+APP_ID   = os.getenv("ENABLEBANKING_APP_ID")
+API_BASE = "https://api.enablebanking.com"
+
+# Private key: prefer the env var (base64-encoded) used in production,
+# fall back to the local certificate.pem file for local development.
+def _load_private_key() -> bytes:
+    b64 = os.getenv("CERT_PRIVATE_KEY_B64")
+    if b64:
+        import base64
+        return base64.b64decode(b64)
+    cert_path = os.path.join(os.path.dirname(__file__), "certificate.pem")
+    if os.path.exists(cert_path):
+        return open(cert_path, "rb").read()
+    raise RuntimeError(
+        "No private key found. Set CERT_PRIVATE_KEY_B64 env var "
+        "or place certificate.pem in the backend directory."
+    )
 
 
 # ── Internal helper: build the signed JWT and return auth headers ──────────────
@@ -54,11 +68,9 @@ def _auth_headers() -> dict:
                    so Enable Banking knows which public key to verify with
     """
     if not APP_ID:
-        raise RuntimeError("ENABLEBANKING_APP_ID is not set in your .env file")
-    if not os.path.exists(CERT_PATH):
-        raise RuntimeError(f"Private key file not found at {CERT_PATH}")
+        raise RuntimeError("ENABLEBANKING_APP_ID is not set")
 
-    private_key = open(CERT_PATH, "rb").read()
+    private_key = _load_private_key()
 
     now = int(datetime.now(timezone.utc).timestamp())
 

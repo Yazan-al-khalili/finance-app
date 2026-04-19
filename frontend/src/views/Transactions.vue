@@ -2,12 +2,12 @@
   <div>
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-3xl font-bold text-gray-800">Transactions</h1>
+      <h1 class="text-3xl font-bold text-gray-100">Transactions</h1>
       <div class="flex items-center gap-3">
         <button
           @click="connectBank"
           :disabled="connecting"
-          class="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
+          class="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-700/50 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -19,7 +19,7 @@
         <button
           @click="syncBank"
           :disabled="syncing"
-          class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
+          class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium disabled:opacity-50 shrink-0"
         >
           <svg class="w-4 h-4" :class="{ 'animate-spin': syncing }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -43,7 +43,9 @@
     <transition name="fade">
       <div
         v-if="message"
-        :class="messageType === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'"
+        :class="messageType === 'success'
+          ? 'bg-green-900/30 border-green-800 text-green-300'
+          : 'bg-red-900/30 border-red-800 text-red-300'"
         class="mb-5 px-4 py-3 rounded-lg border text-sm font-medium flex justify-between items-center"
       >
         <span>{{ message }}</span>
@@ -55,9 +57,9 @@
     <TransactionForm @transaction-added="fetchTransactions" />
 
     <!-- Empty state -->
-    <div v-if="transactions.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-100 py-16 text-center">
-      <p class="text-gray-400 text-sm">No transactions yet.</p>
-      <p class="text-gray-400 text-sm mt-1">Connect your SEB account and click <strong>Sync from SEB</strong>.</p>
+    <div v-if="transactions.length === 0" class="bg-gray-800 rounded-xl shadow-sm border border-gray-700 py-16 text-center">
+      <p class="text-gray-500 text-sm">No transactions yet.</p>
+      <p class="text-gray-500 text-sm mt-1">Connect your SEB account and click <strong>Sync from SEB</strong>.</p>
     </div>
 
     <!-- Month sections -->
@@ -65,7 +67,7 @@
 
       <!-- Month header -->
       <div class="flex items-center justify-between mb-3 px-1">
-        <h2 class="text-lg font-bold text-gray-800">{{ month.label }}</h2>
+        <h2 class="text-lg font-bold text-gray-100">{{ month.label }}</h2>
         <div class="flex items-center gap-5 text-sm">
           <span class="text-green-600 font-medium">
             +{{ formatSEK(month.totalIncome) }}
@@ -84,28 +86,29 @@
         <div
           v-for="cat in month.categories"
           :key="cat.name"
-          class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+          class="bg-gray-800 rounded-xl shadow-sm border border-gray-700 overflow-hidden"
         >
           <!-- Category row (click to expand/collapse) -->
           <button
             @click="toggleCategory(month.key, cat.name)"
-            class="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors text-left"
+            class="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-700/50 transition-colors text-left"
           >
             <div class="flex items-center gap-3">
               <!-- Chevron -->
               <svg
-                class="w-4 h-4 text-gray-400 transition-transform"
+                class="w-4 h-4 text-gray-500 transition-transform"
                 :class="{ 'rotate-90': isOpen(month.key, cat.name) }"
                 fill="none" stroke="currentColor" viewBox="0 0 24 24"
               >
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
               </svg>
 
-              <!-- Category name -->
-              <span class="text-sm font-semibold text-gray-800">{{ cat.name }}</span>
+              <!-- Category icon + name -->
+              <span class="text-lg leading-none">{{ getCategoryIcon(cat.name) }}</span>
+              <span class="text-sm font-semibold text-gray-100">{{ cat.name }}</span>
 
               <!-- Transaction count badge -->
-              <span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+              <span class="text-xs text-gray-500 bg-gray-700 px-2 py-0.5 rounded-full">
                 {{ cat.transactions.length }} {{ cat.transactions.length === 1 ? 'transaction' : 'transactions' }}
               </span>
             </div>
@@ -120,16 +123,16 @@
           </button>
 
           <!-- Expanded transaction rows -->
-          <div v-if="isOpen(month.key, cat.name)" class="border-t border-gray-50">
+          <div v-if="isOpen(month.key, cat.name)" class="border-t border-gray-700">
             <div
               v-for="t in cat.transactions"
               :key="t.id"
-              class="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0"
+              class="flex items-center justify-between px-5 py-2.5 hover:bg-gray-700/50 transition-colors border-b border-gray-700/50 last:border-0"
             >
               <!-- Date + note -->
               <div class="flex items-center gap-4 min-w-0">
-                <span class="text-xs text-gray-400 w-14 shrink-0">{{ formatDate(t.date) }}</span>
-                <span class="text-sm text-gray-500 truncate">{{ t.note || t.category }}</span>
+                <span class="text-xs text-gray-500 w-14 shrink-0">{{ formatDate(t.date) }}</span>
+                <span class="text-sm text-gray-400 truncate">{{ t.note || t.category }}</span>
               </div>
 
               <!-- Amount + delete -->
@@ -160,8 +163,27 @@
 </template>
 
 <script>
-import axios from 'axios'
+import api from '../api'
 import TransactionForm from '../components/TransactionForm.vue'
+
+const CATEGORY_ICONS = [
+  [/ica|coop|lidl|willys|hemköp|hemkop|mat|grocery|livs|netto|maxi/i, '🛒'],
+  [/restaurang|restaurant|café|cafe|pizza|sushi|mcdonald|burger|kfc|kebab|bar |pub|bistro/i, '🍽️'],
+  [/sl |buss|tåg|tag|taxi|uber|bolt|transport|parkering|parking|train|flyg|flight|trafik/i, '🚌'],
+  [/lön|lon|salary|income|arbets|employer/i, '💰'],
+  [/uttag|atm|bankomat|kontant|cash/i, '🏧'],
+  [/kläder|klader|clothes|h&m|zara|asos|fashion|nk |åhlens|ahlens/i, '🛍️'],
+  [/bensin|fuel|gas|shell|circle k|st1|preem|okq8/i, '⛽'],
+  [/apotek|pharmacy|läkare|lakare|doctor|health|dental|tandläk|tandlak|vård|vard/i, '💊'],
+  [/netflix|spotify|youtube|hbo|disney|viaplay|streaming|apple|adobe/i, '📺'],
+  [/försäkring|forsakring|insurance/i, '🛡️'],
+  [/hyra|rent|brf|housing|bostad/i, '🏠'],
+  [/el |electricity|vattenfall|fortum|tibber|eon |energi/i, '⚡'],
+  [/gym|träning|traning|fitness|sport|friskis/i, '🏋️'],
+  [/swish|transfer|överföring|overforing/i, '🔄'],
+  [/ränta|ranta|interest|amortering|loan|lån|lan |bank|skandia|nordea|handels/i, '🏦'],
+  [/internet|bredband|tele|mobil|telia|telenor|comviq/i, '📡'],
+]
 
 export default {
   components: { TransactionForm },
@@ -231,7 +253,7 @@ export default {
 
   methods: {
     async fetchTransactions() {
-      const res = await axios.get('http://localhost:8000/transactions')
+      const res = await api.get('/transactions')
       this.transactions = res.data
     },
 
@@ -250,7 +272,7 @@ export default {
     async connectBank() {
       this.connecting = true
       try {
-        const res = await axios.get('http://localhost:8000/auth/link', {
+        const res = await api.get('/auth/link', {
           params: { country: 'SE', bank_name: 'SEB' },
         })
         window.location.href = res.data.url
@@ -264,7 +286,7 @@ export default {
       this.syncing = true
       this.message = ''
       try {
-        const res = await axios.post('http://localhost:8000/transactions/sync')
+        const res = await api.post('/transactions/sync')
         const n = res.data.new_transactions
         this.showMessage(
           n > 0
@@ -282,7 +304,7 @@ export default {
     async clearAll() {
       const n = this.transactions.length
       if (!confirm(`Delete all ${n} transactions? This cannot be undone.`)) return
-      await axios.delete('http://localhost:8000/transactions/all')
+      await api.delete('/transactions/all')
       this.transactions = []
       this.expanded = new Set()
       this.showMessage(`Cleared ${n} transactions.`)
@@ -290,7 +312,7 @@ export default {
 
     async deleteTransaction(id) {
       if (!confirm('Delete this transaction?')) return
-      await axios.delete(`http://localhost:8000/transactions/${id}`)
+      await api.delete(`/transactions/${id}`)
       await this.fetchTransactions()
     },
 
@@ -311,6 +333,13 @@ export default {
       return new Date(d + 'T12:00:00').toLocaleDateString('sv-SE', {
         day: 'numeric', month: 'short',
       })
+    },
+
+    getCategoryIcon(name) {
+      for (const [pattern, icon] of CATEGORY_ICONS) {
+        if (pattern.test(name)) return icon
+      }
+      return '📋'
     },
   },
 }

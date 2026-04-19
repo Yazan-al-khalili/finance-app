@@ -14,6 +14,8 @@ private_key.pem
 # Frontend
 node_modules/
 dist/
+frontend/.env
+frontend/.env.production
 
 # OS
 .DS_Store

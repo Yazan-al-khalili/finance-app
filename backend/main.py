@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -10,13 +11,15 @@ from datetime import date as date_type, datetime
 import uuid
 
 import enablebanking  # our module in backend/enablebanking.py
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # Create database tables on startup (safe to call repeatedly)
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI()
 
-# Allow the Vite dev server (port 5173) to call this backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,7 +28,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-REDIRECT_URL = "https://thick-insects-rule.loca.lt/auth/callback"
+# Set these in Railway (production) or .env (local dev).
+# REDIRECT_URL  — the /auth/callback URL the bank redirects to after BankID
+# FRONTEND_URL  — where to send the user after auth completes
+REDIRECT_URL  = os.getenv("REDIRECT_URL",  "http://localhost:8000/auth/callback")
+FRONTEND_URL  = os.getenv("FRONTEND_URL",  "http://localhost:5173")
 
 
 # ── Database session dependency ────────────────────────────────────────────────
@@ -164,10 +171,10 @@ def auth_callback(
     """
     if error:
         print(f"Auth error from Enable Banking: {error}")
-        return RedirectResponse(url=f"http://localhost:5173/?auth_error={error}")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error={error}")
 
     if not code:
-        return RedirectResponse(url="http://localhost:5173/?auth_error=no_code")
+        return RedirectResponse(url=f"{FRONTEND_URL}/?auth_error=no_code")
 
     # Exchange the one-time code for a session with account access
     session = enablebanking.exchange_code_for_session(code)
@@ -188,7 +195,7 @@ def auth_callback(
     db.commit()
 
     # Redirect back to the frontend; the ?sync=success tells it to show a success message
-    return RedirectResponse(url="http://localhost:5173/?sync=success")
+    return RedirectResponse(url=f"{FRONTEND_URL}/?sync=success")
 
 
 # ── Enable Banking: data fetching ─────────────────────────────────────────────
@@ -250,7 +257,10 @@ def sync_transactions(db: Session = Depends(get_db)):
                 # Only treat as income if the bank explicitly marks it as a credit (CRDT).
                 # SEB sometimes omits the indicator entirely for card purchases and
                 # foreign transactions — those must default to expense, not income.
-                is_income = (indicator == "CRDT") and (amount > 0)
+                # Pending/unprocessed transactions (no booking_date) also default to
+                # expense because SEB's indicator is unreliable before settlement.
+                is_pending = not t.get("booking_date")
+                is_income = (not is_pending) and (indicator == "CRDT") and (amount > 0)
                 tx_type   = "income" if is_income else "expense"
 
                 # ── Derive a human-readable label for `category` ──────────────
@@ -304,6 +314,101 @@ def sync_transactions(db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Sync error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Demo mode ─────────────────────────────────────────────────────────────────
+
+DEMO_TRANSACTIONS = [
+    # ── April 2025 ────────────────────────────────────────────────────────
+    {"type": "income",  "category": "Lön",               "amount": 36500.00, "date": "2025-04-25", "note": "Månadslön april"},
+    {"type": "expense", "category": "Hyra",              "amount": 9500.00,  "date": "2025-04-01", "note": "Hyra april"},
+    {"type": "expense", "category": "SL",                "amount": 990.00,   "date": "2025-04-02", "note": "SL Månadskort"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 1243.00,  "date": "2025-04-03", "note": "Mathandel"},
+    {"type": "expense", "category": "Apotek Hjärtat",    "amount": 189.00,   "date": "2025-04-08", "note": "Apotek"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 876.00,   "date": "2025-04-10", "note": "Mathandel"},
+    {"type": "expense", "category": "Restaurang Noi",    "amount": 340.00,   "date": "2025-04-12", "note": "Lunch"},
+    {"type": "expense", "category": "Spotify",           "amount": 119.00,   "date": "2025-04-14", "note": "Spotify Premium"},
+    {"type": "expense", "category": "Netflix",           "amount": 169.00,   "date": "2025-04-14", "note": "Netflix Premium"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 1102.00,  "date": "2025-04-17", "note": "Mathandel"},
+    {"type": "expense", "category": "Friskis & Svettis", "amount": 245.00,   "date": "2025-04-17", "note": "Gym månadsavgift"},
+    {"type": "expense", "category": "Vattenfall",        "amount": 523.00,   "date": "2025-04-18", "note": "El"},
+    {"type": "expense", "category": "H&M",               "amount": 799.00,   "date": "2025-04-19", "note": "Kläder"},
+    {"type": "expense", "category": "McDonald's",        "amount": 132.00,   "date": "2025-04-21", "note": "Lunch"},
+    {"type": "expense", "category": "Willys",            "amount": 445.00,   "date": "2025-04-22", "note": "Mathandel"},
+
+    # ── March 2025 ────────────────────────────────────────────────────────
+    {"type": "income",  "category": "Lön",               "amount": 36500.00, "date": "2025-03-25", "note": "Månadslön mars"},
+    {"type": "expense", "category": "Hyra",              "amount": 9500.00,  "date": "2025-03-01", "note": "Hyra mars"},
+    {"type": "expense", "category": "SL",                "amount": 990.00,   "date": "2025-03-02", "note": "SL Månadskort"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 1087.00,  "date": "2025-03-04", "note": "Mathandel"},
+    {"type": "expense", "category": "Apotek Hjärtat",    "amount": 134.00,   "date": "2025-03-06", "note": "Apotek"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 934.00,   "date": "2025-03-11", "note": "Mathandel"},
+    {"type": "expense", "category": "Restaurang Noi",    "amount": 289.00,   "date": "2025-03-13", "note": "Lunch"},
+    {"type": "expense", "category": "Spotify",           "amount": 119.00,   "date": "2025-03-14", "note": "Spotify Premium"},
+    {"type": "expense", "category": "Netflix",           "amount": 169.00,   "date": "2025-03-14", "note": "Netflix Premium"},
+    {"type": "expense", "category": "Friskis & Svettis", "amount": 245.00,   "date": "2025-03-17", "note": "Gym månadsavgift"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 1211.00,  "date": "2025-03-18", "note": "Mathandel"},
+    {"type": "expense", "category": "Vattenfall",        "amount": 612.00,   "date": "2025-03-19", "note": "El"},
+    {"type": "expense", "category": "Zara",              "amount": 1199.00,  "date": "2025-03-22", "note": "Kläder"},
+    {"type": "expense", "category": "Coop",              "amount": 378.00,   "date": "2025-03-25", "note": "Mathandel"},
+    {"type": "expense", "category": "Swish",             "amount": 500.00,   "date": "2025-03-28", "note": "Swish till Erik"},
+    {"type": "expense", "category": "Sushi Yama",        "amount": 430.00,   "date": "2025-03-29", "note": "Middag"},
+
+    # ── February 2025 ─────────────────────────────────────────────────────
+    {"type": "income",  "category": "Lön",               "amount": 36500.00, "date": "2025-02-25", "note": "Månadslön februari"},
+    {"type": "expense", "category": "Hyra",              "amount": 9500.00,  "date": "2025-02-01", "note": "Hyra februari"},
+    {"type": "expense", "category": "SL",                "amount": 990.00,   "date": "2025-02-03", "note": "SL Månadskort"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 1156.00,  "date": "2025-02-03", "note": "Mathandel"},
+    {"type": "expense", "category": "Apotek Hjärtat",    "amount": 245.00,   "date": "2025-02-07", "note": "Apotek"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 889.00,   "date": "2025-02-10", "note": "Mathandel"},
+    {"type": "expense", "category": "Spotify",           "amount": 119.00,   "date": "2025-02-14", "note": "Spotify Premium"},
+    {"type": "expense", "category": "Netflix",           "amount": 169.00,   "date": "2025-02-14", "note": "Netflix Premium"},
+    {"type": "expense", "category": "Friskis & Svettis", "amount": 245.00,   "date": "2025-02-17", "note": "Gym månadsavgift"},
+    {"type": "expense", "category": "Vattenfall",        "amount": 698.00,   "date": "2025-02-18", "note": "El"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 1034.00,  "date": "2025-02-19", "note": "Mathandel"},
+    {"type": "expense", "category": "Kebab Palace",      "amount": 145.00,   "date": "2025-02-20", "note": "Mat"},
+    {"type": "expense", "category": "Telia",             "amount": 349.00,   "date": "2025-02-22", "note": "Mobilabonnemang"},
+    {"type": "expense", "category": "Lidl",              "amount": 312.00,   "date": "2025-02-24", "note": "Mathandel"},
+
+    # ── January 2025 ──────────────────────────────────────────────────────
+    {"type": "income",  "category": "Lön",               "amount": 36500.00, "date": "2025-01-25", "note": "Månadslön januari"},
+    {"type": "expense", "category": "Hyra",              "amount": 9500.00,  "date": "2025-01-01", "note": "Hyra januari"},
+    {"type": "expense", "category": "SL",                "amount": 990.00,   "date": "2025-01-02", "note": "SL Månadskort"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 1432.00,  "date": "2025-01-05", "note": "Mathandel"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 967.00,   "date": "2025-01-13", "note": "Mathandel"},
+    {"type": "expense", "category": "Spotify",           "amount": 119.00,   "date": "2025-01-14", "note": "Spotify Premium"},
+    {"type": "expense", "category": "Netflix",           "amount": 169.00,   "date": "2025-01-14", "note": "Netflix Premium"},
+    {"type": "expense", "category": "H&M",               "amount": 599.00,   "date": "2025-01-15", "note": "Kläder"},
+    {"type": "expense", "category": "Friskis & Svettis", "amount": 245.00,   "date": "2025-01-17", "note": "Gym månadsavgift"},
+    {"type": "expense", "category": "Vattenfall",        "amount": 743.00,   "date": "2025-01-18", "note": "El"},
+    {"type": "expense", "category": "ICA Maxi",          "amount": 1188.00,  "date": "2025-01-20", "note": "Mathandel"},
+    {"type": "expense", "category": "Telia",             "amount": 349.00,   "date": "2025-01-22", "note": "Mobilabonnemang"},
+    {"type": "expense", "category": "Circle K",          "amount": 756.00,   "date": "2025-01-22", "note": "Bensin"},
+    {"type": "expense", "category": "Restaurang Noi",    "amount": 395.00,   "date": "2025-01-24", "note": "Middag"},
+    {"type": "expense", "category": "Swish",             "amount": 300.00,   "date": "2025-01-28", "note": "Swish till Sara"},
+]
+
+
+@app.post("/demo/seed")
+def seed_demo(db: Session = Depends(get_db)):
+    """
+    Wipe all transactions and load realistic mock data for demo purposes.
+    Safe to call repeatedly — always resets to the same clean state.
+    """
+    db.query(models.Transaction).delete()
+
+    for i, t in enumerate(DEMO_TRANSACTIONS):
+        db.add(models.Transaction(
+            type=t["type"],
+            category=t["category"],
+            amount=t["amount"],
+            date=datetime.strptime(t["date"], "%Y-%m-%d").date(),
+            note=t["note"],
+            external_id=f"demo-{i}",
+        ))
+
+    db.commit()
+    return {"seeded": len(DEMO_TRANSACTIONS)}
 
 
 if __name__ == "__main__":
