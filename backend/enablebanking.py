@@ -142,7 +142,7 @@ def start_auth(
       psu_type     "personal" for retail accounts, "business" for corporate
       valid_days   How many days you want access to the account data (max 90)
     """
-    valid_until = (datetime.now(timezone.utc) + timedelta(days=valid_days)).isoformat()
+    valid_until = (datetime.now(timezone.utc) + timedelta(days=valid_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     body = {
         "access": {
@@ -158,6 +158,8 @@ def start_auth(
     }
 
     resp = requests.post(f"{API_BASE}/auth", json=body, headers=_auth_headers())
+    if not resp.ok:
+        print(f"Enable Banking /auth error {resp.status_code}: {resp.text}")
     resp.raise_for_status()
     return resp.json()["url"]
 
