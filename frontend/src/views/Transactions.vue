@@ -1,15 +1,15 @@
 <template>
   <div>
     <!-- Header -->
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
       <h1 class="text-3xl font-bold text-gray-100">Transactions</h1>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap gap-2 items-center">
         <button
           @click="connectBank"
           :disabled="connecting"
-          class="flex items-center gap-2 bg-gray-800 border border-gray-700 text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
+          class="flex items-center gap-2 bg-gray-800 border border-gray-700 text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
           </svg>
@@ -19,13 +19,13 @@
         <button
           @click="syncBank"
           :disabled="syncing"
-          class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium disabled:opacity-50 shrink-0"
+          class="flex items-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
         >
-          <svg class="w-4 h-4" :class="{ 'animate-spin': syncing }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 shrink-0" :class="{ 'animate-spin': syncing }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          {{ syncing ? 'Syncing…' : 'Sync from SEB' }}
+          {{ syncing ? 'Syncing…' : 'Sync' }}
         </button>
 
         <button
@@ -66,16 +66,12 @@
     <div v-for="month in grouped" :key="month.key" class="mb-8">
 
       <!-- Month header -->
-      <div class="flex items-center justify-between mb-3 px-1">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3 px-1">
         <h2 class="text-lg font-bold text-gray-100">{{ month.label }}</h2>
-        <div class="flex items-center gap-5 text-sm">
-          <span class="text-green-600 font-medium">
-            +{{ formatSEK(month.totalIncome) }}
-          </span>
-          <span class="text-red-500 font-medium">
-            −{{ formatSEK(month.totalExpenses) }}
-          </span>
-          <span class="font-bold" :class="month.net >= 0 ? 'text-indigo-600' : 'text-red-600'">
+        <div class="flex items-center gap-3 sm:gap-5 text-sm">
+          <span class="text-green-500 font-medium">+{{ formatSEK(month.totalIncome) }}</span>
+          <span class="text-red-400 font-medium">−{{ formatSEK(month.totalExpenses) }}</span>
+          <span class="font-bold" :class="month.net >= 0 ? 'text-indigo-400' : 'text-red-400'">
             {{ month.net >= 0 ? '+' : '−' }}{{ formatSEK(month.net) }}
           </span>
         </div>
@@ -93,10 +89,10 @@
             @click="toggleCategory(month.key, cat.name)"
             class="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-700/50 transition-colors text-left"
           >
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 min-w-0">
               <!-- Chevron -->
               <svg
-                class="w-4 h-4 text-gray-500 transition-transform"
+                class="w-4 h-4 text-gray-500 transition-transform shrink-0"
                 :class="{ 'rotate-90': isOpen(month.key, cat.name) }"
                 fill="none" stroke="currentColor" viewBox="0 0 24 24"
               >
@@ -104,19 +100,19 @@
               </svg>
 
               <!-- Category icon + name -->
-              <span class="text-lg leading-none">{{ getCategoryIcon(cat.name) }}</span>
-              <span class="text-sm font-semibold text-gray-100">{{ cat.name }}</span>
+              <span class="text-lg leading-none shrink-0">{{ getCategoryIcon(cat.name) }}</span>
+              <span class="text-sm font-semibold text-gray-100 truncate">{{ cat.name }}</span>
 
               <!-- Transaction count badge -->
-              <span class="text-xs text-gray-500 bg-gray-700 px-2 py-0.5 rounded-full">
-                {{ cat.transactions.length }} {{ cat.transactions.length === 1 ? 'transaction' : 'transactions' }}
+              <span class="hidden sm:inline text-xs text-gray-500 bg-gray-700 px-2 py-0.5 rounded-full shrink-0">
+                {{ cat.transactions.length }}
               </span>
             </div>
 
             <!-- Category total -->
             <span
-              class="text-sm font-bold"
-              :class="cat.total >= 0 ? 'text-green-600' : 'text-red-500'"
+              class="text-sm font-bold shrink-0 ml-2"
+              :class="cat.total >= 0 ? 'text-green-400' : 'text-red-400'"
             >
               {{ cat.total >= 0 ? '+' : '−' }}{{ formatSEK(cat.total) }}
             </span>
