@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: saldo-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    envVars:
+      - key: ENABLEBANKING_APP_ID
+        sync: false
+      - key: CERT_PRIVATE_KEY_B64
+        sync: false
+      - key: REDIRECT_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
