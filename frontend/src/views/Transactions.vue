@@ -7,7 +7,7 @@
         <button
           @click="connectBank"
           :disabled="connecting"
-          class="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-700/50 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
+          class="flex items-center gap-2 bg-gray-800 border border-gray-700 text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors shadow-sm text-sm font-medium disabled:opacity-50"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
