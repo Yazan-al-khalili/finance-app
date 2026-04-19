@@ -28,6 +28,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 # Set these in Railway (production) or .env (local dev).
 # REDIRECT_URL  — the /auth/callback URL the bank redirects to after BankID
 # FRONTEND_URL  — where to send the user after auth completes

@@ -547,7 +547,21 @@ export default {
 
     async connectBank() {
       this.connecting = true
+      this.showMessage('Waking up backend… this may take up to 30 seconds on first load.', 'success')
       try {
+        // Render free tier spins down after inactivity — poll /health until the
+        // service is fully awake before starting the bank auth flow. This ensures
+        // the /auth/callback redirect (which arrives ~60s later) hits a live server.
+        const deadline = Date.now() + 60_000
+        while (Date.now() < deadline) {
+          try {
+            await api.get('/health', { timeout: 5000 })
+            break // backend is awake
+          } catch {
+            await new Promise(r => setTimeout(r, 3000))
+          }
+        }
+        this.message = ''
         const res = await api.get('/auth/link', {
           params: { country: 'SE', bank_name: 'SEB' },
         })
