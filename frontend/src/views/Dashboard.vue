@@ -534,11 +534,8 @@ export default {
       window.history.replaceState({}, '', '/')
       await this.fetchTransactions()
     } else {
-      await this.fetchTransactions()
-      // No real data — load demo so visitors always see a populated dashboard
-      if (this.transactions.length === 0) {
-        await this.loadDemo()
-      }
+      // Always show demo by default — visitors should never see real bank data
+      await this.loadDemo()
     }
   },
 
