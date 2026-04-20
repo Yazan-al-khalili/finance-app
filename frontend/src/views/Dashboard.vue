@@ -8,7 +8,7 @@
         <span v-if="isDemo" class="text-xs font-bold uppercase tracking-widest bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-1 rounded-full">
           Demo
         </span>
-        <span v-else-if="transactions.length > 0" class="flex items-center gap-1.5 text-xs font-semibold bg-green-500/10 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-full">
+        <span v-else-if="isLive" class="flex items-center gap-1.5 text-xs font-semibold bg-green-500/10 text-green-400 border border-green-500/30 px-2.5 py-1 rounded-full">
           <span class="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block"></span>
           Live
         </span>
@@ -95,7 +95,7 @@
         </svg>
         <span>You're viewing <strong>demo data</strong> with mock Swedish transactions — not your real bank data.</span>
       </div>
-      <div v-else class="mb-5 flex items-center gap-3 bg-green-500/10 border border-green-500/30 text-green-400 px-4 py-3 rounded-lg text-sm font-medium">
+      <div v-else-if="isLive" class="mb-5 flex items-center gap-3 bg-green-500/10 border border-green-500/30 text-green-400 px-4 py-3 rounded-lg text-sm font-medium">
         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -344,6 +344,7 @@ export default {
       connecting: false,
       loadingDemo: false,
       isDemo: false,
+      isLive: false,
       message: '',
       messageType: 'success',
       openCategories: new Set(),
@@ -522,15 +523,22 @@ export default {
     },
   },
 
-  mounted() {
-    this.fetchTransactions()
+  async mounted() {
     const params = new URLSearchParams(window.location.search)
     if (params.get('sync') === 'success') {
       this.showMessage('SEB connected! Click "Sync Transactions" to import your data.')
       window.history.replaceState({}, '', '/')
+      await this.fetchTransactions()
     } else if (params.get('auth_error')) {
       this.showMessage('Bank connection failed: ' + params.get('auth_error'), 'error')
       window.history.replaceState({}, '', '/')
+      await this.fetchTransactions()
+    } else {
+      await this.fetchTransactions()
+      // No real data — load demo so visitors always see a populated dashboard
+      if (this.transactions.length === 0) {
+        await this.loadDemo()
+      }
     }
   },
 
@@ -594,6 +602,7 @@ export default {
         const res = await api.post('/transactions/sync')
         const n = res.data.new_transactions
         this.isDemo = false
+        this.isLive = true
         this.showMessage(n > 0 ? `Synced ${n} new transaction${n === 1 ? '' : 's'}.` : 'Already up to date.')
         await this.fetchTransactions()
       } catch (err) {
